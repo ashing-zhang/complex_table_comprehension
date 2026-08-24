@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+#=============================================================================
+#  Full run script: process ALL questions and produce the final submission.
+#
+#  1. Detect Python interpreter
+#  2. Change to project root, set PYTHONPATH
+#  3. Run full pipeline (no --limit)
+#  4. Run preflight automatically on finish
+#  5. Propagate non-zero exit code
+#
+#  Usage:
+#    ./scripts/run_full.sh
+#    MAX_WORKERS=8 DPI=200 NO_INTERMEDIATE=1 ./scripts/run_full.sh
+#=============================================================================
+set -euo pipefail
+IFS=$'\n\t'
+
+# --- Script metadata ---------------------------------------------------------
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Defaults (overridable via env) ------------------------------------------
+TESTS="${TESTS:-data/tests.xlsx}"
+FILES="${FILES:-data/files}"
+OUTPUT="${OUTPUT:-data/output/submission.xlsx}"
+MAX_WORKERS="${MAX_WORKERS:-0}"
+DPI="${DPI:-0}"
+NO_INTERMEDIATE="${NO_INTERMEDIATE:-0}"
+
+# --- Color helpers -----------------------------------------------------------
+_COLOR_OK=$'\033[32m'
+_COLOR_WARN=$'\033[33m'
+_COLOR_ERR=$'\033[31m'
+_COLOR_INFO=$'\033[36m'
+_COLOR_DIM=$'\033[90m'
+_COLOR_RESET=$'\033[0m'
+
+log_info()  { echo "${_COLOR_INFO}[INFO]${_COLOR_RESET}  $*"; }
+log_ok()    { echo "${_COLOR_OK}[ OK ]${_COLOR_RESET}  $*"; }
+log_warn()  { echo "${_COLOR_WARN}[WARN]${_COLOR_RESET}  $*" >&2; }
+log_error() { echo "${_COLOR_ERR}[ERR ]${_COLOR_RESET}  $*" >&2; }
+log_dim()   { echo "${_COLOR_DIM}$*${_COLOR_RESET}"; }
+
+# --- Second-precision time helpers -------------------------------------------
+now_ts() {
+    # Echo current epoch seconds (portable fallback to date).
+    if command -v date >/dev/null 2>&1; then
+        date +%s
+    else
+        echo 0
+    fi
+}
+
+fmt_elapsed() {
+    # Format a seconds delta to "HH:MM:SS".
+    local secs="$1"
+    local h=$(( secs / 3600 ))
+    local m=$(( (secs % 3600) / 60 ))
+    local s=$(( secs % 60 ))
+    printf "%02d:%02d:%02d" "$h" "$m" "$s"
+}
+
+# --- Project root ------------------------------------------------------------
+get_project_root() {
+    # Return absolute path of the project root directory.
+    # shellcheck disable=SC2164
+    (cd "${SCRIPT_DIR}/.." && pwd)
+}
+
+# --- Python interpreter detection -------------------------------------------
+resolve_python() {
+    # Detect python via: python3 -> python -> py launcher -> abs paths.
+    local candidates=(
+        "python3"
+        "python"
+        "py -3"
+    )
+    local -a extra_candidates=(
+        "/c/Python311/python.exe"
+        "/c/Python310/python.exe"
+        "/c/Python312/python.exe"
+        "${LOCALAPPDATA:-}/Programs/Python/Python311/python.exe"
+        "${LOCALAPPDATA:-}/Programs/Python/Python310/python.exe"
+        "${LOCALAPPDATA:-}/Programs/Python/Python312/python.exe"
+        "/Program Files/Python311/python.exe"
+        "/Program Files/Python310/python.exe"
+        "/Program Files/Python312/python.exe"
+    )
+    local cmd out
+
+    for cmd in "${candidates[@]}"; do
+        set +e
+        out="$(bash -c "$cmd --version" 2>&1)"
+        local rc=$?
+        set -e
+        if [[ $rc -eq 0 ]]; then
+            log_ok "python found: $cmd ($out)"
+            echo "$cmd"
+            return 0
+        fi
+    done
+
+    local path
+    for path in "${extra_candidates[@]}"; do
+        [[ -z "$path" ]] && continue
+        if [[ -f "$path" ]]; then
+            set +e
+            out="$(bash -c "\"$path\" --version" 2>&1)"
+            local rc=$?
+            set -e
+            if [[ $rc -eq 0 ]]; then
+                log_ok "python found: $path ($out)"
+                echo "\"$path\""
+                return 0
+            fi
+        fi
+    done
+
+    log_error "Python 3.10+ not found. Please install Python and add it to PATH."
+    exit 1
+}
+
+# --- Path guard --------------------------------------------------------------
+ensure_paths_exist() {
+    # Abort if required input paths missing.
+    local tests="$1"
+    local files="$2"
+    if [[ ! -f "$tests" ]]; then
+        log_error "tests.xlsx not found: $tests"
+        exit 1
+    fi
+    if [[ ! -d "$files" ]]; then
+        log_error "table dir not found: $files"
+        exit 1
+    fi
+}
+
+# --- PYTHONPATH builder ------------------------------------------------------
+build_pythonpath() {
+    # Echo assembled PYTHONPATH string.
+    local project_root="$1"
+    local src_dir="${project_root}/src"
+    local vendor_dir="${project_root}/.vendor"
+    local result="${src_dir}:${vendor_dir}"
+    if [[ -n "${PYTHONPATH:-}" ]]; then
+        result="${result}:${PYTHONPATH}"
+    fi
+    echo "$result"
+}
+
+# --- Entry point -------------------------------------------------------------
+main() {
+    # Full pipeline execution + timing + auto preflight.
+    local project_root
+    project_root="$(get_project_root)"
+    log_info "project root: ${project_root}"
+    cd "${project_root}"
+
+    # Warn on missing API key (do not abort: still produces empty-answer submission).
+    if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
+        log_warn "DASHSCOPE_API_KEY env var not set. Will produce empty-answer submission."
+        log_warn "Please configure your Aliyun Bailian API key in .env and re-run for real answers."
+    fi
+
+    local py_cmd
+    py_cmd="$(resolve_python)"
+
+    local pp
+    pp="$(build_pythonpath "${project_root}")"
+    export PYTHONPATH="$pp"
+
+    ensure_paths_exist "$TESTS" "$FILES"
+
+    # Build arg list.
+    local -a args_list=(
+        -m src.main
+        --tests "$TESTS"
+        --files "$FILES"
+        --output "$OUTPUT"
+    )
+    if [[ "$MAX_WORKERS" =~ ^[0-9]+$ ]] && [[ "$MAX_WORKERS" -gt 0 ]]; then
+        args_list+=(--max-workers "$MAX_WORKERS")
+    fi
+    if [[ "$DPI" =~ ^[0-9]+$ ]] && [[ "$DPI" -gt 0 ]]; then
+        args_list+=(--dpi "$DPI")
+    fi
+    if [[ "$NO_INTERMEDIATE" == "1" || "$NO_INTERMEDIATE" == "true" ]]; then
+        args_list+=(--no-intermediate)
+    fi
+
+    echo
+    log_info "starting full pipeline (question count depends on tests.xlsx)..."
+    log_dim "[cmd] ${py_cmd} ${args_list[*]}"
+    echo
+
+    local t_start t_end elapsed
+    t_start="$(now_ts)"
+
+    set +e
+    bash -c "PYTHONPATH=\"${PYTHONPATH}\" ${py_cmd} ${args_list[*]@Q}"
+    local exit_code=$?
+    set -e
+
+    t_end="$(now_ts)"
+    elapsed=$(( t_end - t_start ))
+    log_info "elapsed: $(fmt_elapsed "$elapsed"), exit code: ${exit_code}"
+    if [[ $exit_code -ne 0 ]]; then
+        log_warn "pipeline returned non-zero exit code: ${exit_code}"
+    fi
+
+    # Auto preflight.
+    echo
+    log_info "preflight checking submission: ${OUTPUT}"
+    local -a pf_args=(
+        -m src.main
+        --validate-only
+        --tests "$TESTS"
+        --submission "$OUTPUT"
+    )
+    set +e
+    bash -c "PYTHONPATH=\"${PYTHONPATH}\" ${py_cmd} ${pf_args[*]@Q}"
+    local pf_exit_code=$?
+    set -e
+
+    local max_code
+    max_code=$(( exit_code > pf_exit_code ? exit_code : pf_exit_code ))
+    echo
+    if [[ $max_code -eq 0 ]]; then
+        log_ok "full run finished, submission preflight PASSED -> ${OUTPUT}"
+    else
+        log_warn "Run finished with issues, please review the log output above."
+    fi
+    exit $max_code
+}
+
+main "$@"

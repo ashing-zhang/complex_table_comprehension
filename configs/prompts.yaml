@@ -1,0 +1,5 @@
+version: v1
+structure: prompts/structure_v1
+extract: prompts/extract_v1
+thinking: prompts/thinking_v1
+repair: prompts/repair_v1

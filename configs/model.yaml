@@ -1,0 +1,4 @@
+models:
+  vision: qwen-vl-max-latest
+  reasoning: qwen-plus
+  verifier: qwen-plus

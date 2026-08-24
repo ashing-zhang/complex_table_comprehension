@@ -1,0 +1,37 @@
+project:
+  name: table-agent
+
+data:
+  tests: data/tests.xlsx
+  files: data/files
+  output: data/output/submission.xlsx
+  debug: data/debug
+
+model:
+  provider: aliyun
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  vision_model: qwen-vl-max-latest
+  reasoning_model: qwen-plus
+  temperature: 0
+  max_tokens: 4096
+  request_timeout: 120
+
+pipeline:
+  max_retries: 2
+  enable_verifier: false
+  enable_cache: true
+  repair_max_retries: 2
+  save_intermediate: true
+  save_images: true
+  page_top_k: 5
+  table_top_k: 3
+  pdf_dpi: 200
+  max_image_long_side: 4096
+
+concurrency:
+  max_workers: 4
+  qwen_concurrency: 2
+
+debug:
+  save_intermediate: true
+  save_images: true
