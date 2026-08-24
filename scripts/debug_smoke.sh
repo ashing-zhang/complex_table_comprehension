@@ -3,7 +3,8 @@
 #  Small-scale debug script: run first N questions to sanity-check the pipeline.
 #
 #  Steps:
-#    1. Detect Python interpreter (python3 -> python -> py launcher -> common abs paths)
+#    1. Detect Python interpreter (python3 -> python -> py launcher -> abs paths;
+#       WindowsApps stub is skipped in favor of a real install)
 #    2. Change to project root
 #    3. Set PYTHONPATH (.vendor only; src is resolvable via `python -m`)
 #    4. Invoke src.main --limit <LIMIT>
@@ -54,13 +55,46 @@ get_project_root() {
 declare -a PY_CMD=()
 
 resolve_python() {
-    # Detect python via candidates in order: python3 -> python -> py -> abs paths.
+    # Detect python via candidates in order, skipping the WindowsApps
+    # (Microsoft Store) stub which lacks the project's dependencies.
+    # Order: PATH python3/python (non-WindowsApps) -> py launcher -> abs paths.
     # Populates global PY_CMD array; exits script on failure.
-    local candidates=(
-        "python3"
-        "python"
-        "py -3"
-    )
+    local out resolved
+
+    # Step 1: PATH-based python3 / python, skipping WindowsApps stub.
+    local name
+    for name in python3 python; do
+        while IFS= read -r resolved; do
+            if [[ "$resolved" == *WindowsApps* ]]; then
+                log_warn "skipping WindowsApps Python stub: $resolved"
+                continue
+            fi
+            set +e
+            out="$("$resolved" --version 2>&1)"
+            local rc=$?
+            set -e
+            if [[ $rc -eq 0 ]]; then
+                log_ok "python found: $resolved ($out)"
+                PY_CMD=("$resolved")
+                return 0
+            fi
+        done < <(type -aP "$name" 2>/dev/null)
+    done
+
+    # Step 2: py launcher (typically at C:\Windows\py.exe, not WindowsApps).
+    if command -v py >/dev/null 2>&1; then
+        set +e
+        out="$(py -3 --version 2>&1)"
+        local rc=$?
+        set -e
+        if [[ $rc -eq 0 ]]; then
+            log_ok "python found: py -3 ($out)"
+            PY_CMD=(py -3)
+            return 0
+        fi
+    fi
+
+    # Step 3: Absolute-path candidates (relevant for Windows + Git Bash).
     local -a extra_candidates=(
         "/c/Python311/python.exe"
         "/c/Python310/python.exe"
@@ -72,31 +106,13 @@ resolve_python() {
         "/Program Files/Python310/python.exe"
         "/Program Files/Python312/python.exe"
     )
-    local cmd out
-
-    # Step 1: PATH-based candidates.
-    for cmd in "${candidates[@]}"; do
-        set +e
-        out="$(bash -c "$cmd --version" 2>&1)"
-        local rc=$?
-        set -e
-        if [[ $rc -eq 0 ]]; then
-            log_ok "python found: $cmd ($out)"
-            case "$cmd" in
-                *' '*) IFS=' ' read -ra PY_CMD <<< "$cmd" ;;
-                *) PY_CMD=("$cmd") ;;
-            esac
-            return 0
-        fi
-    done
-
-    # Step 2: Absolute-path candidates (relevant for Windows + Git Bash).
     local path
     for path in "${extra_candidates[@]}"; do
         [[ -z "$path" ]] && continue
+        [[ "$path" == *WindowsApps* ]] && continue
         if [[ -f "$path" ]]; then
             set +e
-            out="$(bash -c "\"$path\" --version" 2>&1)"
+            out="$("$path" --version 2>&1)"
             local rc=$?
             set -e
             if [[ $rc -eq 0 ]]; then
