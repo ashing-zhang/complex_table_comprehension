@@ -119,7 +119,7 @@ REMOTE_NAME=origin BRANCH_NAME=main bash scripts/sync_to_github.sh
 - **Python 解释器探测回退链**（共 12 层，debug_smoke / run_full / validate）：
   `python3` → `python` → `py -3` → `C:\Python3xx\python.exe` → `%LOCALAPPDATA%\Programs\Python\Python3xx\python.exe` → `%ProgramFiles%\Python3xx\python.exe`
 - 自动切换到项目根目录，避免 cwd 错误
-- 自动设置 `PYTHONPATH = src:.vendor:$PYTHONPATH`，确保本地模块可被导入
+- 自动设置 `PYTHONPATH = .vendor:$PYTHONPATH`（仅含 vendored 依赖；`src` 包通过 `python -m src.main` 由 cwd 解析，不加入 PYTHONPATH 以免遮蔽标准库 `io`）
 - 严格模式：`set -euo pipefail` + `IFS=$'\n\t'`，出错立即终止并定位
 - API Key 缺失告警（不终止，仍可生成空答案文件用于调试骨架流程）
 - 前置路径检查：`tests.xlsx` / `files/` / `submission.xlsx` 存在性

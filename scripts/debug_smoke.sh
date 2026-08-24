@@ -5,7 +5,7 @@
 #  Steps:
 #    1. Detect Python interpreter (python3 -> python -> py launcher -> common abs paths)
 #    2. Change to project root
-#    3. Set PYTHONPATH (src + .vendor)
+#    3. Set PYTHONPATH (.vendor only; src is resolvable via `python -m`)
 #    4. Invoke src.main --limit <LIMIT>
 #    5. Run preflight on the generated submission automatically
 #
@@ -129,13 +129,17 @@ ensure_paths_exist() {
 
 # --- Assemble PYTHONPATH -----------------------------------------------------
 build_pythonpath() {
-    # Prepend project src/ and .vendor/ to PYTHONPATH; echo result.
+    # Assemble PYTHONPATH with only .vendor (vendored deps).
+    # NOTE: <project_root>/src MUST NOT be added here — doing so shadows the
+    # stdlib `io` package during interpreter startup (init_sys_streams),
+    # causing "Fatal Python error: can't initialize sys standard streams".
+    # The `src` package is resolvable as a top-level package because
+    # `python -m src.main` prepends cwd (project root) to sys.path.
     local project_root="$1"
-    local src_dir="${project_root}/src"
     local vendor_dir="${project_root}/.vendor"
     local sep=":"
     # Git Bash on Windows still uses ':' inside PYTHONPATH (CPython handles it).
-    local result="${src_dir}${sep}${vendor_dir}"
+    local result="${vendor_dir}"
     if [[ -n "${PYTHONPATH:-}" ]]; then
         result="${result}${sep}${PYTHONPATH}"
     fi

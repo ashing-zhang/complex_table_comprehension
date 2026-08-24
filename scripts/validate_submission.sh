@@ -125,11 +125,15 @@ ensure_paths_exist() {
 
 # --- PYTHONPATH builder ------------------------------------------------------
 build_pythonpath() {
-    # Echo assembled PYTHONPATH string.
+    # Assemble PYTHONPATH with only .vendor (vendored deps).
+    # NOTE: <project_root>/src MUST NOT be added here — doing so shadows the
+    # stdlib `io` package during interpreter startup (init_sys_streams),
+    # causing "Fatal Python error: can't initialize sys standard streams".
+    # `src` is resolvable as a top-level package because `python -m src.main`
+    # prepends cwd (project root) to sys.path.
     local project_root="$1"
-    local src_dir="${project_root}/src"
     local vendor_dir="${project_root}/.vendor"
-    local result="${src_dir}:${vendor_dir}"
+    local result="${vendor_dir}"
     if [[ -n "${PYTHONPATH:-}" ]]; then
         result="${result}:${PYTHONPATH}"
     fi
