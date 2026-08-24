@@ -35,11 +35,11 @@ _COLOR_INFO=$'\033[36m'
 _COLOR_DIM=$'\033[90m'
 _COLOR_RESET=$'\033[0m'
 
-log_info()  { echo "${_COLOR_INFO}[INFO]${_COLOR_RESET}  $*"; }
-log_ok()    { echo "${_COLOR_OK}[ OK ]${_COLOR_RESET}  $*"; }
+log_info()  { echo "${_COLOR_INFO}[INFO]${_COLOR_RESET}  $*" >&2; }
+log_ok()    { echo "${_COLOR_OK}[ OK ]${_COLOR_RESET}  $*" >&2; }
 log_warn()  { echo "${_COLOR_WARN}[WARN]${_COLOR_RESET}  $*" >&2; }
 log_error() { echo "${_COLOR_ERR}[ERR ]${_COLOR_RESET}  $*" >&2; }
-log_dim()   { echo "${_COLOR_DIM}$*${_COLOR_RESET}"; }
+log_dim()   { echo "${_COLOR_DIM}$*${_COLOR_RESET}" >&2; }
 
 # --- Second-precision time helpers -------------------------------------------
 now_ts() {
@@ -68,8 +68,12 @@ get_project_root() {
 }
 
 # --- Python interpreter detection -------------------------------------------
+# Global array holding the resolved python command (may carry args like "py -3").
+declare -a PY_CMD=()
+
 resolve_python() {
     # Detect python via: python3 -> python -> py launcher -> abs paths.
+    # Populates global PY_CMD array; exits script on failure.
     local candidates=(
         "python3"
         "python"
@@ -95,7 +99,10 @@ resolve_python() {
         set -e
         if [[ $rc -eq 0 ]]; then
             log_ok "python found: $cmd ($out)"
-            echo "$cmd"
+            case "$cmd" in
+                *' '*) IFS=' ' read -ra PY_CMD <<< "$cmd" ;;
+                *) PY_CMD=("$cmd") ;;
+            esac
             return 0
         fi
     done
@@ -110,7 +117,7 @@ resolve_python() {
             set -e
             if [[ $rc -eq 0 ]]; then
                 log_ok "python found: $path ($out)"
-                echo "\"$path\""
+                PY_CMD=("$path")
                 return 0
             fi
         fi
@@ -162,8 +169,7 @@ main() {
         log_warn "Please configure your Aliyun Bailian API key in .env and re-run for real answers."
     fi
 
-    local py_cmd
-    py_cmd="$(resolve_python)"
+    resolve_python
 
     local pp
     pp="$(build_pythonpath "${project_root}")"
@@ -190,14 +196,14 @@ main() {
 
     echo
     log_info "starting full pipeline (question count depends on tests.xlsx)..."
-    log_dim "[cmd] ${py_cmd} ${args_list[*]}"
+    log_dim "[cmd] ${PY_CMD[*]} ${args_list[*]}"
     echo
 
     local t_start t_end elapsed
     t_start="$(now_ts)"
 
     set +e
-    bash -c "PYTHONPATH=\"${PYTHONPATH}\" ${py_cmd} ${args_list[*]@Q}"
+    "${PY_CMD[@]}" "${args_list[@]}"
     local exit_code=$?
     set -e
 
@@ -218,7 +224,7 @@ main() {
         --submission "$OUTPUT"
     )
     set +e
-    bash -c "PYTHONPATH=\"${PYTHONPATH}\" ${py_cmd} ${pf_args[*]@Q}"
+    "${PY_CMD[@]}" "${pf_args[@]}"
     local pf_exit_code=$?
     set -e
 
