@@ -66,8 +66,15 @@ def solve_question(
         document = load_document(file_path, dpi=dpi)
         trace.event("document_loaded", pages=len(document.pages))
 
-        # 2. 页面定位 (召回).
-        page_candidates = select_pages(document, question, top_k=settings.pipeline.page_top_k)
+        # 2. 页面定位 (召回): 显式页码 -> LLM/正则关键词 -> top-k.
+        page_candidates = select_pages(
+            document,
+            question,
+            top_k=settings.pipeline.page_top_k,
+            client=client,
+            trace=trace,
+            use_llm=settings.pipeline.use_llm_keywords,
+        )
         trace.event("page_selected", candidates=[(c.page_index, c.score) for c in page_candidates])
         if not page_candidates:
             raise TableAgentError(ErrorCode.PAGE_NOT_FOUND, "no candidate pages")

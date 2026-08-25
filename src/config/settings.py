@@ -65,6 +65,7 @@ class PipelineSettings:
     table_top_k: int = 3
     pdf_dpi: int = 200
     max_image_long_side: int = 4096
+    use_llm_keywords: bool = True
 
 
 @dataclass

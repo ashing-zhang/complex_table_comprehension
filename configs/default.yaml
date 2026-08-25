@@ -34,6 +34,8 @@ pipeline:
   table_top_k: 3
   pdf_dpi: 200
   max_image_long_side: 4096
+  # 启用 LLM 关键词抽取用于页面召回; 关闭时退化到纯正则关键词召回.
+  use_llm_keywords: true
 
 concurrency:
   max_workers: 4
