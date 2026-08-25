@@ -2,15 +2,18 @@
 #=============================================================================
 #  Full run script: process ALL questions and produce the final submission.
 #
-#  1. Detect Python interpreter
-#  2. Change to project root, set PYTHONPATH
-#  3. Run full pipeline (no --limit)
-#  4. Run preflight automatically on finish
-#  5. Propagate non-zero exit code
+#  Configuration-driven (no argparse): all params come from configs/default.yaml
+#  + optional env var overrides. This script:
+#    1. Detects Python interpreter
+#    2. cd to project root, sets PYTHONPATH (.vendor only)
+#    3. Runs `python -m src.main` with CONFIG=configs/default.yaml
+#    4. Runs preflight automatically on finish (CONFIG=configs/validate.yaml)
+#    5. Propagates non-zero exit code
 #
 #  Usage:
 #    ./scripts/run_full.sh
 #    MAX_WORKERS=8 DPI=200 NO_INTERMEDIATE=1 ./scripts/run_full.sh
+#    OUTPUT=data/output/final.xlsx ./scripts/run_full.sh
 #=============================================================================
 set -euo pipefail
 IFS=$'\n\t'
@@ -18,14 +21,6 @@ IFS=$'\n\t'
 # --- Script metadata ---------------------------------------------------------
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# --- Defaults (overridable via env) ------------------------------------------
-TESTS="${TESTS:-data/tests.xlsx}"
-FILES="${FILES:-data/files}"
-OUTPUT="${OUTPUT:-data/output/submission.xlsx}"
-MAX_WORKERS="${MAX_WORKERS:-0}"
-DPI="${DPI:-0}"
-NO_INTERMEDIATE="${NO_INTERMEDIATE:-0}"
 
 # --- Color helpers -----------------------------------------------------------
 _COLOR_OK=$'\033[32m'
@@ -127,21 +122,6 @@ resolve_python() {
     exit 1
 }
 
-# --- Path guard --------------------------------------------------------------
-ensure_paths_exist() {
-    # Abort if required input paths missing.
-    local tests="$1"
-    local files="$2"
-    if [[ ! -f "$tests" ]]; then
-        log_error "tests.xlsx not found: $tests"
-        exit 1
-    fi
-    if [[ ! -d "$files" ]]; then
-        log_error "table dir not found: $files"
-        exit 1
-    fi
-}
-
 # --- PYTHONPATH builder ------------------------------------------------------
 build_pythonpath() {
     # Assemble PYTHONPATH with only .vendor (vendored deps).
@@ -179,35 +159,19 @@ main() {
     pp="$(build_pythonpath "${project_root}")"
     export PYTHONPATH="$pp"
 
-    ensure_paths_exist "$TESTS" "$FILES"
-
-    # Build arg list.
-    local -a args_list=(
-        -m src.main
-        --tests "$TESTS"
-        --files "$FILES"
-        --output "$OUTPUT"
-    )
-    if [[ "$MAX_WORKERS" =~ ^[0-9]+$ ]] && [[ "$MAX_WORKERS" -gt 0 ]]; then
-        args_list+=(--max-workers "$MAX_WORKERS")
-    fi
-    if [[ "$DPI" =~ ^[0-9]+$ ]] && [[ "$DPI" -gt 0 ]]; then
-        args_list+=(--dpi "$DPI")
-    fi
-    if [[ "$NO_INTERMEDIATE" == "1" || "$NO_INTERMEDIATE" == "true" ]]; then
-        args_list+=(--no-intermediate)
-    fi
+    # 默认走 default 场景 (全量运行); 用户可通过 CONFIG=... 切到其它 yaml.
+    export CONFIG="${CONFIG:-configs/default.yaml}"
 
     echo
-    log_info "starting full pipeline (question count depends on tests.xlsx)..."
-    log_dim "[cmd] ${PY_CMD[*]} ${args_list[*]}"
+    log_info "starting full pipeline (CONFIG=${CONFIG})..."
+    log_dim "[cmd] ${PY_CMD[*]} -m src.main"
     echo
 
     local t_start t_end elapsed
     t_start="$(now_ts)"
 
     set +e
-    "${PY_CMD[@]}" "${args_list[@]}"
+    "${PY_CMD[@]}" -m src.main
     local exit_code=$?
     set -e
 
@@ -218,17 +182,20 @@ main() {
         log_warn "pipeline returned non-zero exit code: ${exit_code}"
     fi
 
-    # Auto preflight.
+    # Auto preflight: 切到 validate 场景; 若用户覆写过 OUTPUT, 则顺带覆盖 SUBMISSION.
+    local submission_target="${OUTPUT:-}"
     echo
-    log_info "preflight checking submission: ${OUTPUT}"
-    local -a pf_args=(
-        -m src.main
-        --validate-only
-        --tests "$TESTS"
-        --submission "$OUTPUT"
-    )
+    if [[ -n "$submission_target" ]]; then
+        log_info "preflight checking submission: ${submission_target}"
+    else
+        log_info "preflight checking submission (from configs/validate.yaml)"
+    fi
     set +e
-    "${PY_CMD[@]}" "${pf_args[@]}"
+    if [[ -n "$submission_target" ]]; then
+        SUBMISSION="$submission_target" CONFIG=configs/validate.yaml "${PY_CMD[@]}" -m src.main
+    else
+        CONFIG=configs/validate.yaml "${PY_CMD[@]}" -m src.main
+    fi
     local pf_exit_code=$?
     set -e
 
@@ -236,7 +203,7 @@ main() {
     max_code=$(( exit_code > pf_exit_code ? exit_code : pf_exit_code ))
     echo
     if [[ $max_code -eq 0 ]]; then
-        log_ok "full run finished, submission preflight PASSED -> ${OUTPUT}"
+        log_ok "full run finished, submission preflight PASSED."
     else
         log_warn "Run finished with issues, please review the log output above."
     fi

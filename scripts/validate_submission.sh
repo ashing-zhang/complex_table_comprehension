@@ -2,7 +2,14 @@
 #=============================================================================
 #  Preflight check: validate an existing submission.xlsx via 8-step preflight.
 #
-#  Invokes src.main --validate-only, which checks:
+#  Configuration-driven (no argparse): all params come from configs/validate.yaml
+#  + optional env var overrides. This script:
+#    1. Detects Python interpreter
+#    2. cd to project root, sets PYTHONPATH (.vendor only)
+#    3. Runs `python -m src.main` with CONFIG=configs/validate.yaml
+#       (SUBMISSION env var can override the target file)
+#
+#  Invoked mode runs 8 preflight steps:
 #    1. Column name correctness
 #    2. Row count matches tests.xlsx
 #    3. id set matches tests.xlsx
@@ -15,6 +22,7 @@
 #  Usage:
 #    ./scripts/validate_submission.sh
 #    ./scripts/validate_submission.sh data/output/my_submission.xlsx
+#    SUBMISSION=data/output/other.xlsx ./scripts/validate_submission.sh
 #=============================================================================
 set -euo pipefail
 IFS=$'\n\t'
@@ -23,9 +31,12 @@ IFS=$'\n\t'
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- Defaults ----------------------------------------------------------------
-SUBMISSION="${1:-${SUBMISSION:-data/output/submission.xlsx}}"
-TESTS="${TESTS:-data/tests.xlsx}"
+# --- Positional arg overrides SUBMISSION env var -----------------------------
+# (保留位置参数兼容性; 不存在则回退到 validate.yaml 中的 submission 路径)
+SUBMISSION_POS="${1:-}"
+if [[ -n "$SUBMISSION_POS" ]]; then
+    export SUBMISSION="$SUBMISSION_POS"
+fi
 
 # --- Color helpers -----------------------------------------------------------
 _COLOR_OK=$'\033[32m'
@@ -108,21 +119,6 @@ resolve_python() {
     exit 1
 }
 
-# --- Path existence guard ----------------------------------------------------
-ensure_paths_exist() {
-    # Abort if tests.xlsx or submission.xlsx missing.
-    local tests="$1"
-    local submission="$2"
-    if [[ ! -f "$tests" ]]; then
-        log_error "tests.xlsx not found: $tests"
-        exit 1
-    fi
-    if [[ ! -f "$submission" ]]; then
-        log_error "submission.xlsx not found: $submission"
-        exit 1
-    fi
-}
-
 # --- PYTHONPATH builder ------------------------------------------------------
 build_pythonpath() {
     # Assemble PYTHONPATH with only .vendor (vendored deps).
@@ -142,7 +138,7 @@ build_pythonpath() {
 
 # --- Entry point -------------------------------------------------------------
 main() {
-    # Preflight entry point: env -> check paths -> validate -> report.
+    # Preflight entry point: detect python -> set paths -> validate -> report.
     local project_root
     project_root="$(get_project_root)"
     log_info "project root: ${project_root}"
@@ -154,21 +150,19 @@ main() {
     pp="$(build_pythonpath "${project_root}")"
     export PYTHONPATH="$pp"
 
-    ensure_paths_exist "$TESTS" "$SUBMISSION"
-
-    local -a pf_args=(
-        -m src.main
-        --validate-only
-        --tests "$TESTS"
-        --submission "$SUBMISSION"
-    )
+    # 切到 validate 场景; 用户的位置参数 / SUBMISSION 环境变量会覆盖 yaml 中的 submission.
+    export CONFIG="${CONFIG:-configs/validate.yaml}"
 
     echo
-    log_info "preflight checking submission: ${SUBMISSION}"
+    if [[ -n "${SUBMISSION:-}" ]]; then
+        log_info "preflight checking submission: ${SUBMISSION}"
+    else
+        log_info "preflight checking submission (from ${CONFIG})"
+    fi
     echo
 
     set +e
-    "${PY_CMD[@]}" "${pf_args[@]}"
+    "${PY_CMD[@]}" -m src.main
     local code=$?
     set -e
 

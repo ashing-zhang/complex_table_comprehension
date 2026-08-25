@@ -1,17 +1,27 @@
 """项目入口 (TECHNICAL_SOLUTION.md 第 58 章).
 
-提供 CLI:
-    python -m src.main --tests data/tests.xlsx --files data/files --output data/output/submission.xlsx
-    python -m src.main --validate-only --tests data/tests.xlsx --submission data/output/submission.xlsx
+配置驱动 (无 argparse): 所有运行期参数均来自 configs/*.yaml 与环境变量.
+
+启动指南:
+    # 默认全量运行 (configs/default.yaml)
+    python -m src.main
+
+    # 小规模调试 (前 5 题, 输出 submission_smoke.xlsx)
+    CONFIG=configs/smoke.yaml python -m src.main
+
+    # 提交前校验已有 submission
+    CONFIG=configs/validate.yaml python -m src.main
+
+    # 一次性覆盖个别参数 (任意场景 yaml 基础上)
+    LIMIT=20 OUTPUT=data/output/x.xlsx python -m src.main
+    SUBMISSION=data/output/other.xlsx CONFIG=configs/validate.yaml python -m src.main
 """
 
 from __future__ import annotations
 
-import argparse
 import sys
-from pathlib import Path
 
-from src.config.settings import get_settings
+from src.config.settings import Settings, get_settings
 from src.io.question_loader import load_questions
 from src.io.submission_writer import preflight_submission
 from src.observability.logger import get_logger
@@ -21,44 +31,31 @@ from src.pipeline.runner import Orchestrator
 logger = get_logger("main")
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
-    """构造命令行参数解析器."""
-    p = argparse.ArgumentParser(description="复杂表格视觉理解与问答系统")
-    p.add_argument("--tests", default="data/tests.xlsx", help="tests.xlsx 路径")
-    p.add_argument("--files", default="data/files", help="表格文件目录")
-    p.add_argument("--output", default="data/output/submission.xlsx", help="submission.xlsx 输出路径")
-    p.add_argument("--config", default=None, help="自定义配置文件路径")
-    p.add_argument("--max-workers", type=int, default=None, help="最大并发数")
-    p.add_argument("--dpi", type=int, default=None, help="PDF 渲染分辨率")
-    p.add_argument("--no-intermediate", action="store_true", help="不保存中间产物")
-    p.add_argument("--limit", type=int, default=None, help="只处理前 N 道题 (调试用)")
-    p.add_argument("--validate-only", action="store_true", help="只对已有 submission 执行 preflight 检查")
-    p.add_argument("--submission", default=None, help="待校验的 submission 路径 (配合 --validate-only)")
-    return p
-
-
-def cmd_run(args: argparse.Namespace) -> int:
+def cmd_run(settings: Settings) -> int:
     """执行完整 pipeline: tests.xlsx -> submission.xlsx."""
-    settings = get_settings(args.config)
-    tests_path = Path(args.tests)
-    files_dir = Path(args.files)
-    output_path = Path(args.output)
+    tests_path = settings.resolve_path(settings.data.tests)
+    files_dir = settings.resolve_path(settings.data.files)
+    output_path = settings.resolve_path(settings.data.output)
 
     logger.info("loading questions from %s", tests_path)
     load_result = load_questions(tests_path, files_dir)
-    logger.info("loaded %d valid + %d invalid questions", len(load_result.questions), len(load_result.invalid_rows))
+    logger.info(
+        "loaded %d valid + %d invalid questions",
+        len(load_result.questions),
+        len(load_result.invalid_rows),
+    )
 
-    if args.limit:
-        load_result.questions = load_result.questions[: args.limit]
-        logger.info("limit applied: processing first %d questions", args.limit)
+    if settings.run.limit and settings.run.limit > 0:
+        load_result.questions = load_result.questions[: settings.run.limit]
+        logger.info("limit applied: processing first %d questions", settings.run.limit)
 
     orchestrator = Orchestrator(
         tests_path=tests_path,
         files_dir=files_dir,
         output_path=output_path,
-        max_workers=args.max_workers,
-        save_intermediate=not args.no_intermediate,
-        dpi=args.dpi,
+        max_workers=settings.concurrency.max_workers,
+        save_intermediate=settings.pipeline.save_intermediate,
+        dpi=settings.pipeline.pdf_dpi,
     )
     out_path = orchestrator.run(load_result)
 
@@ -71,10 +68,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 1
 
 
-def cmd_validate(args: argparse.Namespace) -> int:
+def cmd_validate(settings: Settings) -> int:
     """只对已有 submission 执行 preflight 检查."""
-    tests_path = Path(args.tests)
-    submission_path = Path(args.submission or args.output)
+    tests_path = settings.resolve_path(settings.data.tests)
+    submission_rel = settings.run.submission or settings.data.output
+    submission_path = settings.resolve_path(submission_rel)
     if not submission_path.exists():
         logger.error("submission not found: %s", submission_path)
         return 2
@@ -93,13 +91,14 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1
 
 
-def main(argv: list[str] | None = None) -> int:
-    """主入口."""
-    args = _build_arg_parser().parse_args(argv)
+def main() -> int:
+    """主入口: 基于 yaml + 环境变量的配置驱动分发."""
+    settings = get_settings()
+    logger.info("config: %s (mode=%s)", settings.config_path, settings.run.mode)
     try:
-        if args.validate_only:
-            return cmd_validate(args)
-        return cmd_run(args)
+        if settings.run.mode == "validate":
+            return cmd_validate(settings)
+        return cmd_run(settings)
     finally:
         get_metrics().log_summary()
 

@@ -2470,17 +2470,17 @@ pytest tests/unit -q
 # 集成测试
 pytest tests/integration -q
 
-# 小规模运行
-python -m src.main \
-  --tests data/tests.xlsx \
-  --files data/files \
-  --output data/output/submission.xlsx
+# 小规模运行 (CONFIG 切换场景; 也可改用 scripts/debug_smoke.sh)
+CONFIG=configs/smoke.yaml python -m src.main
+
+# 全量运行 (默认 yaml, 等价于 scripts/run_full.sh)
+python -m src.main
 
 # 提交前检查
-python -m src.main \
-  --validate-only \
-  --tests data/tests.xlsx \
-  --submission data/output/submission.xlsx
+CONFIG=configs/validate.yaml python -m src.main
+
+# 一次性覆盖个别参数 (env var 优先级 > yaml)
+LIMIT=20 OUTPUT=data/output/x.xlsx python -m src.main
 ```
 
 ---

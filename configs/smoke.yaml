@@ -1,17 +1,19 @@
+# 小规模调试场景配置 (前 N 题 + 独立输出文件, 不污染正式 submission).
+# 启动方式: CONFIG=configs/smoke.yaml python -m src.main
+# 也可由环境变量覆盖: LIMIT=20 OUTPUT=data/output/x.xlsx CONFIG=configs/smoke.yaml python -m src.main
+
 project:
   name: table-agent
 
-# 运行模式与运行期参数: "run" 执行整批 pipeline; "validate" 仅做 submission preflight.
-# limit=0 表示不限; 也可由环境变量 LIMIT/RUN_MODE/SUBMISSION 覆盖.
 run:
   mode: run
-  limit: 0
+  limit: 5
   submission: ""
 
 data:
   tests: data/tests.xlsx
   files: data/files
-  output: data/output/submission.xlsx
+  output: data/output/submission_smoke.xlsx
   debug: data/debug
 
 model:
