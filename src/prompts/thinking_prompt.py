@@ -1,6 +1,9 @@
 """Thinking Prompt (TECHNICAL_SOLUTION.md 第 26 章).
 
 模型只负责生成计算计划, Python 执行计算, 显著降低幻觉计算.
+支持按 answer_format 注入结构化答案要求 (json / json_array).
+
+运行指南: 由 src.vision.table_parser 调用, 无需单独运行.
 """
 
 from __future__ import annotations
@@ -26,12 +29,44 @@ _SYSTEM = (
 _USER_TMPL = (
     "题目：{question}\n"
     "{hint_line}"
+    "{fmt_line}"
     "请定位表格中相关数据并生成计算计划。\n"
     "只输出 JSON 对象，不要输出任何其它内容。"
 )
 
+# 按 answer_format 注入的结构化答案指令.
+_FORMAT_INSTRUCTIONS: dict[str, str] = {
+    "json_array": (
+        '答案格式要求：最终答案必须是 JSON 数组，数组元素为简单键值对象'
+        '（示例：[{"月份": "1月", "销售总额": "12000"}]）。'
+        '请在计划中额外提供 "answer" 字段直接承载该 JSON 数组，'
+        "键名使用表格中的语义名称（如列标题、期间名称），不要输出说明性文字。\n"
+    ),
+    "json": (
+        "答案格式要求：最终答案必须是 JSON 对象。"
+        '请在计划中额外提供 "answer" 字段直接承载该 JSON 对象，'
+        "键名使用表格中的语义名称（如列标题、行标题），不要输出说明性文字。\n"
+    ),
+}
 
-def build_thinking_prompt(question: str, *, table_hint: str | None = None) -> tuple[str, str]:
-    """构造 thinking 任务的 system + user prompt."""
+
+def build_thinking_prompt(
+    question: str,
+    *,
+    table_hint: str | None = None,
+    answer_format: str | None = None,
+) -> tuple[str, str]:
+    """构造 thinking 任务的 system + user prompt.
+
+    Args:
+        question: 题目文本.
+        table_hint: 表格提示.
+        answer_format: 题目要求的答案格式 (json/json_array 时注入结构化指令).
+
+    Returns:
+        (system, user) 提示词二元组.
+    """
     hint_line = f"表格提示：{table_hint}\n" if table_hint else ""
-    return _SYSTEM, _USER_TMPL.format(question=question, hint_line=hint_line)
+    fmt_key = (answer_format or "").strip().lower()
+    fmt_line = _FORMAT_INSTRUCTIONS.get(fmt_key, "")
+    return _SYSTEM, _USER_TMPL.format(question=question, hint_line=hint_line, fmt_line=fmt_line)

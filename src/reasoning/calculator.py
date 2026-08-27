@@ -99,14 +99,14 @@ class Calculator:
         """计数 (非空元素个数)."""
         return sum(1 for v in values if v is not None and str(v).strip() != "")
 
-    def execute_plan(self, plan: dict[str, Any], table_text_lookup: dict[tuple[int, int], str] | None = None) -> Decimal | int:
+    def execute_plan(self, plan: dict[str, Any], table_text_lookup: dict[tuple[int, int], str] | None = None) -> Decimal | int | list[Decimal]:
         """执行 LLM 生成的计算计划.
 
         plan 字段: {operation, inputs: [{row, col, text}], output_format}.
         table_text_lookup: (row, col) -> 原始文本, 用于校验 inputs 与表格一致.
 
         Returns:
-            计算结果 (Decimal 或 int).
+            计算结果 (Decimal / int; filter 操作返回 Decimal 列表).
         """
         op = str(plan.get("operation", "")).lower()
         inputs = plan.get("inputs", []) or []
@@ -157,6 +157,12 @@ class Calculator:
         if op in ("argmin", "min"):
             ks = [(i.get("row"), to_decimal(i.get("text"))) for i in inputs]
             return self.argmin(ks)[1]
+        if op in ("filter", "locate", "select"):
+            # 纯定位类操作: 返回所有可解析的输入数值 (与输入顺序一致).
+            values = [self._to_dec(n) for n in nums if n is not None]
+            if not values:
+                raise TableAgentError(ErrorCode.VALUE_NOT_FOUND, "filter matched no numeric input")
+            return values
         raise TableAgentError(ErrorCode.CALCULATION_ERROR, f"unknown operation: {op}")
 
     def _to_dec(self, v: Decimal | float | int | None) -> Decimal:

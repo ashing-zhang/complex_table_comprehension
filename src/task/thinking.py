@@ -3,10 +3,17 @@
 流程: Question -> Question Parser -> Data Locator -> Typed Values ->
       Deterministic Calculator -> Answer.
 LLM 只生成计算计划, Python 完成精确计算.
+
+运行指南: 由 src.pipeline.task_pipeline 按 question_type=thinking 分发调用;
+也可独立验证: python -m src.task.thinking (仅导入检查).
+
+json/json_array 类 answer_format: 优先采用模型在计划 answer 字段中给出的
+结构化答案, 计算结果与兜底 guess 均由 value_normalizer 强制为合法 JSON 形态.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from src.observability.logger import get_logger
@@ -17,6 +24,9 @@ from src.task.base import BaseSolver, SolverContext
 from src.vision.table_parser import TableParser
 
 logger = get_logger("thinking_solver")
+
+# 启用结构化答案通道的格式集合.
+_JSON_FORMATS = ("json", "json_array")
 
 
 class ThinkingSolver(BaseSolver):
@@ -39,10 +49,27 @@ class ThinkingSolver(BaseSolver):
                 question_text=q.question,
                 trace=ctx.trace,
                 table_hint=q.table_hint,
+                answer_format=fmt,
             )
         except TableAgentError as exc:
             logger.warning("thinking plan failed id=%s: %s", q.id, exc)
             return self._empty_result(ctx, exc.code.value, str(exc))
+
+        evidence = plan.get("inputs", []) if isinstance(plan.get("inputs"), list) else []
+
+        # json 类格式: 优先采用模型给出的结构化 answer 字段 (含语义键名).
+        if fmt in _JSON_FORMATS:
+            structured = self._structured_json_answer(plan.get("answer"), fmt)
+            if structured is not None:
+                logger.info("thinking id=%s: using structured %s answer from plan", q.id, fmt)
+                return TaskResult(
+                    id=q.id,
+                    answer=structured,
+                    ok=True,
+                    confidence=0.85,
+                    evidence=evidence,
+                    warnings=[],
+                )
 
         # 构建 (row, col) -> 原始文本 查找表 (若 table 已解析).
         lookup: dict[tuple[int, int], str] | None = None
@@ -64,7 +91,7 @@ class ThinkingSolver(BaseSolver):
                 answer=answer_str,
                 ok=True,
                 confidence=0.8,
-                evidence=plan.get("inputs", []) if isinstance(plan.get("inputs"), list) else [],
+                evidence=evidence,
                 warnings=[],
             )
 
@@ -74,6 +101,7 @@ class ThinkingSolver(BaseSolver):
         except TableAgentError as exc:
             logger.warning("thinking calc failed id=%s: %s", q.id, exc)
             # 计算失败: 退回模型给出的 answer_guess (如果有).
+            # normalize_answer_value 对 json 类格式会强制包装为合法 JSON 形态.
             guess = plan.get("answer_guess")
             if guess:
                 return TaskResult(
@@ -85,7 +113,7 @@ class ThinkingSolver(BaseSolver):
                 )
             return self._empty_result(ctx, exc.code.value, str(exc))
 
-        # 格式化最终答案.
+        # 格式化最终答案 (filter 返回列表时由 json_array 形态归一处理).
         answer_str = normalize_answer_value(result_val, fmt)
         # 布尔类判断题 (例如 "是否达到正向 surplus"): 检查 reasoning / answer_guess.
         if fmt == "string":
@@ -103,9 +131,28 @@ class ThinkingSolver(BaseSolver):
             answer=answer_str,
             ok=True,
             confidence=0.85,
-            evidence=plan.get("inputs", []) if isinstance(plan.get("inputs"), list) else [],
+            evidence=evidence,
             warnings=[],
         )
+
+    def _structured_json_answer(self, value: Any, fmt: str) -> str | None:
+        """从计划的 answer 字段提取结构化 JSON 答案.
+
+        Args:
+            value: 计划中的 answer 字段 (期望 list/dict 或可解析的 JSON 字符串).
+            fmt: 目标格式 ("json" / "json_array").
+
+        Returns:
+            规范化的 JSON 字符串; 自由文本无法解析时返回 None 走常规计算链.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                value = json.loads(value.strip())
+            except Exception:
+                return None
+        return normalize_answer_value(value, fmt)
 
 
 def _bool_interpretation(plan: dict[str, Any], result_val: Any, question: str) -> str | None:

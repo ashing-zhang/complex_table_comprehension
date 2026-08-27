@@ -160,11 +160,23 @@ class TableParser:
         *,
         trace: TraceContext | None = None,
         table_hint: str | None = None,
+        answer_format: str | None = None,
     ) -> dict[str, Any]:
-        """解析 thinking 任务: 让模型生成计算计划, 由 Python 执行."""
+        """解析 thinking 任务: 让模型生成计算计划, 由 Python 执行.
+
+        Args:
+            image_paths: 表格图像路径.
+            question_text: 题目文本.
+            trace: 追踪上下文.
+            table_hint: 表格提示.
+            answer_format: 答案格式约束 (json/json_array 时注入结构化指令).
+
+        Returns:
+            计算计划 dict.
+        """
         from src.prompts.thinking_prompt import build_thinking_prompt
 
-        system, user_prompt = build_thinking_prompt(question_text, table_hint=table_hint)
+        system, user_prompt = build_thinking_prompt(question_text, table_hint=table_hint, answer_format=answer_format)
         raw = self.client.chat_with_images(
             image_paths=image_paths,
             prompt=user_prompt,

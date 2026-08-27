@@ -40,13 +40,36 @@ def validate_answer(question: "Question", result: TaskResult, table: Table | Non
     elif qtype == "thinking":
         if not answer:
             result.warnings.append("empty thinking answer")
-        # 校验 JSON 数组类答案合法.
-        if answer.strip().startswith("["):
-            try:
-                json.loads(answer)
-            except Exception as exc:  # noqa: BLE001
-                result.warnings.append(f"thinking JSON array invalid: {exc}")
+    else:
+        return result
+
+    # json 类 answer_format: 校验 JSON 合法性与目标形态 (extract/thinking 通用).
+    fmt = question.answer_format
+    if fmt in ("json", "json_array"):
+        _validate_json_format(fmt, answer, result)
     return result
+
+
+def _validate_json_format(fmt: str, answer: str, result: TaskResult) -> None:
+    """校验 json / json_array 格式答案的合法性与形态.
+
+    违规时追加 warning 并将 confidence 降级为 0 (不改动答案内容).
+    """
+    try:
+        obj = json.loads(answer) if answer.strip() else None
+    except Exception as exc:  # noqa: BLE001
+        result.warnings.append(f"answer_format={fmt} but answer is not valid JSON: {exc}")
+        result.confidence = 0.0
+        return
+    expected_type = list if fmt == "json_array" else dict
+    if not isinstance(obj, expected_type):
+        result.warnings.append(
+            f"answer_format={fmt} expects {expected_type.__name__}, got {type(obj).__name__}"
+        )
+        result.confidence = 0.0
+    elif fmt == "json_array" and not obj:
+        result.warnings.append("answer_format=json_array got empty array")
+        result.confidence = 0.0
 
 
 class AnswerValidator:
