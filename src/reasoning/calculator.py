@@ -148,6 +148,8 @@ class Calculator:
         if op in ("format", "normalize"):
             if not nums:
                 raise TableAgentError(ErrorCode.CALCULATION_ERROR, "format needs 1 value")
+            if len(nums) > 1:
+                logger.warning("format op received %d values, returning only first", len(nums))
             return self._to_dec(nums[0])
         if op in ("argmax", "max"):
             ks = [(i.get("row"), to_decimal(i.get("text"))) for i in inputs]

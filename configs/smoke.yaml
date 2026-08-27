@@ -7,7 +7,7 @@ project:
 
 run:
   mode: run
-  limit: 5
+  limit: 10
   submission: ""
 
 data:

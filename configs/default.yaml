@@ -5,7 +5,7 @@ project:
 # limit=0 表示不限; 也可由环境变量 LIMIT/RUN_MODE/SUBMISSION 覆盖.
 run:
   mode: run
-  limit: 5
+  limit: 10
   submission: ""
 
 data:

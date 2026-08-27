@@ -38,10 +38,11 @@ def normalize_answer_value(value: Any, answer_format: str | None = None) -> str:
             # 已经是 JSON 字符串: 确保合法.
             try:
                 obj = json.loads(value)
-                return json.dumps(obj, ensure_ascii=False)
+                return json.dumps(obj, ensure_ascii=False, default=str)
             except Exception:
                 return value
-        return json.dumps(value, ensure_ascii=False)
+        # default=str: Decimal 等非原生 JSON 类型转为 str, 避免 TypeError.
+        return json.dumps(value, ensure_ascii=False, default=str)
 
     # number / number-like.
     if fmt == "number":
@@ -62,5 +63,5 @@ def normalize_answer_value(value: Any, answer_format: str | None = None) -> str:
     if isinstance(value, (Decimal, int, float)):
         return format_number(value)
     if isinstance(value, (list, dict)):
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False, default=str)
     return str(value).strip()

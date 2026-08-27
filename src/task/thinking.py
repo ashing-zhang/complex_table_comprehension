@@ -53,6 +53,21 @@ class ThinkingSolver(BaseSolver):
                     for c in range(cell.col, cell.col + cell.colspan):
                         lookup[(r, c)] = cell.text
 
+        op = str(plan.get("operation", "")).lower()
+        # 纯格式化操作 (无算术运算): 模型已在 answer_guess 中给出格式化结果, 直接采用.
+        # 避免对多值 format 调用 calculator (仅返回首值) 及 Decimal→JSON 序列化失败.
+        if op in ("format", "normalize") and plan.get("answer_guess"):
+            logger.info("thinking id=%s: format op, using answer_guess directly", q.id)
+            answer_str = normalize_answer_value(plan.get("answer_guess"), fmt)
+            return TaskResult(
+                id=q.id,
+                answer=answer_str,
+                ok=True,
+                confidence=0.8,
+                evidence=plan.get("inputs", []) if isinstance(plan.get("inputs"), list) else [],
+                warnings=[],
+            )
+
         # 执行确定性计算.
         try:
             result_val = self._calculator.execute_plan(plan, table_text_lookup=lookup)
