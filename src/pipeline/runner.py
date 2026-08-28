@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.config.settings import get_settings
+from src.io.debug_recovery import load_debug_answers
 from src.io.question_loader import LoadResult
 from src.io.result_journal import ResultJournal
 from src.io.submission_writer import preflight_submission, write_submission
@@ -213,6 +214,53 @@ class Orchestrator:
         if missing:
             logger.warning(
                 "recover: %d question(s) missing in journal (filled empty), sample: %s",
+                len(missing),
+                missing[:10],
+            )
+        return self._finalize(results, load_result)
+
+    def recover_debug(self, load_result: LoadResult) -> Path:
+        """从 data/debug/<id>/final_answer.json 恢复答案并写出 submission.xlsx.
+
+        debug 目录中缺失的题目以空答案占位, 保证行数与 id 完整; 缺失清单会告警.
+
+        Args:
+            load_result: question_loader 返回的加载结果 (含 invalid 行).
+
+        Returns:
+            写出的 submission.xlsx 路径.
+        """
+        debug_dir = get_settings().resolve_path(get_settings().data.debug)
+        stored = load_debug_answers(debug_dir)
+        results: list[TaskResult] = []
+        for bad in load_result.invalid_rows:
+            results.append(self._invalid_row_result(bad))
+
+        missing: list[str] = []
+        for q in load_result.questions:
+            if (res := stored.get(q.id)) is not None:
+                results.append(res)
+            else:
+                missing.append(q.id)
+                results.append(
+                    TaskResult(
+                        id=q.id,
+                        answer="",
+                        ok=False,
+                        error_code="not_recovered",
+                        error_message="missing in debug dir",
+                        warnings=["missing in debug dir"],
+                    )
+                )
+        logger.info(
+            "recover_debug: %d/%d question(s) restored from debug dir %s",
+            len(load_result.questions) - len(missing),
+            len(load_result.questions),
+            debug_dir,
+        )
+        if missing:
+            logger.warning(
+                "recover_debug: %d question(s) missing in debug (filled empty), sample: %s",
                 len(missing),
                 missing[:10],
             )

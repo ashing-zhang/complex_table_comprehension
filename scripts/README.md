@@ -32,6 +32,7 @@
 | 提交前检查（preflight） | `validate_submission.sh` | 默认 `CONFIG=configs/validate.yaml`，对已有 submission 做 8 步 preflight |
 | 完整运行全量题目 | `run_full.sh` | 默认 `CONFIG=configs/default.yaml`，全量出分 + 计时 + 结束自动 preflight |
 | 从日志恢复结果到 xlsx | `recover_results.sh` | 默认 `RUN_MODE=recover`，从 `results.jsonl` 恢复已完成答案到 submission.xlsx + 结束自动 preflight |
+| 从 debug 目录恢复结果到 xlsx | `recover_debug.sh` | 默认 `RUN_MODE=recover_debug`，从 `data/debug/<id>/final_answer.json` 恢复答案到 submission.xlsx + 结束自动 preflight |
 | 同步本地改动到 GitHub | `sync_to_github.sh` | 安全顺序：校验 → (可选 pull rebase) → 提交 → 推送到远程分支 |
 
 ## Windows 下如何执行 .sh 脚本
@@ -121,7 +122,22 @@ JOURNAL=data/output/other.jsonl OUTPUT=data/output/recovered.xlsx bash scripts/r
 CONFIG=configs/smoke.yaml bash scripts/recover_results.sh
 ```
 
-### 5) 同步本地改动到 GitHub
+### 5) 从 debug 目录恢复结果到 xlsx
+
+当需要从 `data/debug/<id>/final_answer.json` 恢复答案（而非从 JSONL 日志恢复）时，使用本脚本。会扫描 debug 目录下所有纯数字命名的子目录，读取各自的 `final_answer.json`，按 `tests.xlsx` 的 id 顺序写出 submission，缺失的题目以空答案兜底：
+
+```bash
+# 默认从 data/debug 恢复到 data/output/submission.xlsx
+bash scripts/recover_debug.sh
+
+# 覆盖 debug 目录 / 输出路径
+DEBUG_DIR=data/debug OUTPUT=data/output/recovered.xlsx bash scripts/recover_debug.sh
+
+# 切到其它 yaml
+CONFIG=configs/smoke.yaml bash scripts/recover_debug.sh
+```
+
+### 6) 同步本地改动到 GitHub
 
 ```bash
 # 最简用法：自动生成提交信息，不执行 pull
@@ -175,13 +191,14 @@ REMOTE_NAME=origin BRANCH_NAME=main bash scripts/sync_to_github.sh
 | 变量名 | 适用脚本 | 覆盖目标 | 说明 |
 |---|---|---|---|
 | `CONFIG` | 全部 | yaml 文件选择 | 指向 `configs/<scenario>.yaml`，决定运行场景 |
-| `RUN_MODE` | 全部 | `run.mode` | `run` / `validate`；通常由 yaml 决定，无需手设 |
+| `RUN_MODE` | 全部 | `run.mode` | `run` / `validate` / `recover` / `recover_debug`；通常由 yaml 决定，无需手设 |
 | `LIMIT` | debug_smoke / run_full | `run.limit` | 处理前 N 道题（位置参数 `$1` 优先级更高，仅 debug_smoke） |
 | `SUBMISSION` | validate_submission | `run.submission` | 待校验的 submission 路径（位置参数 `$1` 优先级更高） |
 | `TESTS` | debug_smoke / run_full | `data.tests` | tests.xlsx 路径 |
 | `FILES` | debug_smoke / run_full | `data.files` | 表格文件目录 |
-| `OUTPUT` | debug_smoke / run_full / recover_results | `data.output` | 输出 submission.xlsx 路径 |
+| `OUTPUT` | debug_smoke / run_full / recover_results / recover_debug | `data.output` | 输出 submission.xlsx 路径 |
 | `JOURNAL` | recover_results | `data.journal` | 单题结果 JSONL 日志路径（恢复源） |
+| `DEBUG_DIR` | recover_debug | `data.debug` | debug 目录路径（`<id>/final_answer.json` 恢复源） |
 | `MAX_WORKERS` | run_full | `concurrency.max_workers` | 最大并发 worker 数（>0 生效） |
 | `DPI` | run_full | `pipeline.pdf_dpi` | PDF 渲染 DPI（>0 生效） |
 | `NO_INTERMEDIATE` | debug_smoke / run_full | `pipeline.save_intermediate` | `1`/`true` 时不保存中间调试产物 |

@@ -91,7 +91,8 @@ class DataPaths:
 class RunSettings:
     """运行模式与运行期参数.
 
-    mode:        "run" 执行整批 pipeline; "validate" 仅做 submission preflight.
+    mode:        "run" 执行整批 pipeline; "validate" 仅做 submission preflight;
+                 "recover" 从 JSONL 日志恢复; "recover_debug" 从 debug 目录恢复.
     limit:       仅处理前 N 道题, 0 或 None 表示不限.
     submission:  validate 模式下被校验的 submission 路径; 空字符串则回退到 data.output.
     """
@@ -140,7 +141,7 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     覆盖范围 (均为可选, 未设置则保留 yaml 值):
         模型:     DASHSCOPE_API_KEY / DASHSCOPE_BASE_URL / QWEN_VISION_MODEL / QWEN_REASONING_MODEL
         运行期:   RUN_MODE / LIMIT / SUBMISSION / NO_INTERMEDIATE
-        数据路径: TESTS / FILES / OUTPUT / JOURNAL
+        数据路径: TESTS / FILES / OUTPUT / JOURNAL / DEBUG_DIR
         调参:     MAX_WORKERS / DPI
     """
     # --- 模型相关 ---
@@ -173,6 +174,8 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
         data["output"] = output
     if journal := os.getenv("JOURNAL"):
         data["journal"] = journal
+    if debug := os.getenv("DEBUG_DIR"):
+        data["debug"] = debug
 
     # --- pipeline / 并发调参 ---
     pipe = cfg.setdefault("pipeline", {})
