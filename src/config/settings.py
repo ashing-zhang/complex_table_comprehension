@@ -83,6 +83,7 @@ class DataPaths:
     tests: str = "data/tests.xlsx"
     files: str = "data/files"
     output: str = "data/output/submission.xlsx"
+    journal: str = "data/output/results.jsonl"
     debug: str = "data/debug"
 
 
@@ -139,7 +140,7 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     覆盖范围 (均为可选, 未设置则保留 yaml 值):
         模型:     DASHSCOPE_API_KEY / DASHSCOPE_BASE_URL / QWEN_VISION_MODEL / QWEN_REASONING_MODEL
         运行期:   RUN_MODE / LIMIT / SUBMISSION / NO_INTERMEDIATE
-        数据路径: TESTS / FILES / OUTPUT
+        数据路径: TESTS / FILES / OUTPUT / JOURNAL
         调参:     MAX_WORKERS / DPI
     """
     # --- 模型相关 ---
@@ -170,6 +171,8 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
         data["files"] = files
     if output := os.getenv("OUTPUT"):
         data["output"] = output
+    if journal := os.getenv("JOURNAL"):
+        data["journal"] = journal
 
     # --- pipeline / 并发调参 ---
     pipe = cfg.setdefault("pipeline", {})

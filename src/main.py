@@ -12,6 +12,9 @@
     # 提交前校验已有 submission
     CONFIG=configs/validate.yaml python -m src.main
 
+    # 从 JSONL 结果日志恢复已完成的答案到 submission.xlsx (不调用模型)
+    RUN_MODE=recover python -m src.main
+
     # 一次性覆盖个别参数 (任意场景 yaml 基础上)
     LIMIT=20 OUTPUT=data/output/x.xlsx python -m src.main
     SUBMISSION=data/output/other.xlsx CONFIG=configs/validate.yaml python -m src.main
@@ -68,6 +71,31 @@ def cmd_run(settings: Settings) -> int:
     return 1
 
 
+def cmd_recover(settings: Settings) -> int:
+    """从结果日志 (data.journal) 恢复已完成答案并写出 submission.xlsx."""
+    tests_path = settings.resolve_path(settings.data.tests)
+    files_dir = settings.resolve_path(settings.data.files)
+    output_path = settings.resolve_path(settings.data.output)
+
+    logger.info("recovering results from journal to %s", output_path)
+    load_result = load_questions(tests_path, files_dir)
+
+    orchestrator = Orchestrator(
+        tests_path=tests_path,
+        files_dir=files_dir,
+        output_path=output_path,
+    )
+    out_path = orchestrator.recover(load_result)
+
+    # 最终 preflight 汇总.
+    ok, issues = preflight_submission(load_result.all_ids(), out_path)
+    if ok:
+        logger.info("DONE: recovery OK -> %s", out_path)
+        return 0
+    logger.error("recovery finished but preflight failed: %s", issues)
+    return 1
+
+
 def cmd_validate(settings: Settings) -> int:
     """只对已有 submission 执行 preflight 检查."""
     tests_path = settings.resolve_path(settings.data.tests)
@@ -98,6 +126,8 @@ def main() -> int:
     try:
         if settings.run.mode == "validate":
             return cmd_validate(settings)
+        if settings.run.mode == "recover":
+            return cmd_recover(settings)
         return cmd_run(settings)
     finally:
         get_metrics().log_summary()

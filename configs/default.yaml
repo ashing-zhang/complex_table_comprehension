@@ -12,6 +12,8 @@ data:
   tests: data/tests.xlsx
   files: data/files
   output: data/output/submission.xlsx
+  # 单题结果 JSONL 日志: 逐题落盘, 支持断点续跑 (RUN_MODE=recover 仅从日志恢复 xlsx).
+  journal: data/output/results.jsonl
   debug: data/debug
 
 model:

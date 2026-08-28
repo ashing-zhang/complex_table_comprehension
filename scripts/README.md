@@ -31,6 +31,7 @@
 | 小规模调试（前 N 题） | `debug_smoke.sh` | 默认 `CONFIG=configs/smoke.yaml`（前 5 题），跑完自动 preflight |
 | 提交前检查（preflight） | `validate_submission.sh` | 默认 `CONFIG=configs/validate.yaml`，对已有 submission 做 8 步 preflight |
 | 完整运行全量题目 | `run_full.sh` | 默认 `CONFIG=configs/default.yaml`，全量出分 + 计时 + 结束自动 preflight |
+| 从日志恢复结果到 xlsx | `recover_results.sh` | 默认 `RUN_MODE=recover`，从 `results.jsonl` 恢复已完成答案到 submission.xlsx + 结束自动 preflight |
 | 同步本地改动到 GitHub | `sync_to_github.sh` | 安全顺序：校验 → (可选 pull rebase) → 提交 → 推送到远程分支 |
 
 ## Windows 下如何执行 .sh 脚本
@@ -105,7 +106,22 @@ MAX_WORKERS=8 DPI=200 NO_INTERMEDIATE=1 bash scripts/run_full.sh
 OUTPUT=data/output/final.xlsx bash scripts/run_full.sh
 ```
 
-### 4) 同步本地改动到 GitHub
+### 4) 从日志恢复结果到 xlsx
+
+当 `run_full.sh` 被 Ctrl+C 中断、模型调用失败或需要从已有结果导出时，使用本脚本从 JSONL 结果日志恢复（不调用模型）：
+
+```bash
+# 默认从 data/output/results.jsonl 恢复到 data/output/submission.xlsx
+bash scripts/recover_results.sh
+
+# 覆盖日志路径 / 输出路径
+JOURNAL=data/output/other.jsonl OUTPUT=data/output/recovered.xlsx bash scripts/recover_results.sh
+
+# 切到其它 yaml (如 smoke 场景的 results_smoke.jsonl -> submission_smoke.xlsx)
+CONFIG=configs/smoke.yaml bash scripts/recover_results.sh
+```
+
+### 5) 同步本地改动到 GitHub
 
 ```bash
 # 最简用法：自动生成提交信息，不执行 pull
@@ -164,7 +180,8 @@ REMOTE_NAME=origin BRANCH_NAME=main bash scripts/sync_to_github.sh
 | `SUBMISSION` | validate_submission | `run.submission` | 待校验的 submission 路径（位置参数 `$1` 优先级更高） |
 | `TESTS` | debug_smoke / run_full | `data.tests` | tests.xlsx 路径 |
 | `FILES` | debug_smoke / run_full | `data.files` | 表格文件目录 |
-| `OUTPUT` | debug_smoke / run_full | `data.output` | 输出 submission.xlsx 路径 |
+| `OUTPUT` | debug_smoke / run_full / recover_results | `data.output` | 输出 submission.xlsx 路径 |
+| `JOURNAL` | recover_results | `data.journal` | 单题结果 JSONL 日志路径（恢复源） |
 | `MAX_WORKERS` | run_full | `concurrency.max_workers` | 最大并发 worker 数（>0 生效） |
 | `DPI` | run_full | `pipeline.pdf_dpi` | PDF 渲染 DPI（>0 生效） |
 | `NO_INTERMEDIATE` | debug_smoke / run_full | `pipeline.save_intermediate` | `1`/`true` 时不保存中间调试产物 |
